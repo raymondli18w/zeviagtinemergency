@@ -280,7 +280,7 @@ def fetch_pending_lines(document_prefix=None, client_codes=None, limit=5000, ski
         return None
 
 def generate_barcode_pdf(document_data, document_name):
-    """Generate PDF with one barcode per page on 4x6 inch labels using ReportLab's barcode"""
+    """Generate PDF with one barcode per page on 4x6 inch labels"""
     buffer = io.BytesIO()
     
     # Filter out items without serial
@@ -378,9 +378,12 @@ def generate_barcode_pdf(document_data, document_name):
         
         # Generate barcode using ReportLab's Code39
         try:
-            # Create Code39 barcode
+            # Create Code39 barcode - make sure serial is string
+            serial_str = str(serial).strip()
+            
+            # Create barcode
             barcode_obj = code39.Code39(
-                str(serial),
+                serial_str,
                 barWidth=0.4,
                 barHeight=40,
                 humanReadable=False,
@@ -388,7 +391,7 @@ def generate_barcode_pdf(document_data, document_name):
                 start=True
             )
             
-            # Create drawing
+            # Create drawing with proper size
             barcode_drawing = Drawing(260, 60)
             barcode_drawing.add(barcode_obj)
             
@@ -398,6 +401,7 @@ def generate_barcode_pdf(document_data, document_name):
             page_content.append(Spacer(1, 2))
             
         except Exception as e:
+            # If barcode fails, show error but continue
             error_style = ParagraphStyle(
                 'ErrorStyle',
                 parent=styles['Normal'],
@@ -405,7 +409,7 @@ def generate_barcode_pdf(document_data, document_name):
                 textColor=colors.red,
                 alignment=1
             )
-            page_content.append(Paragraph(f"⚠️ Barcode unavailable: {serial}", error_style))
+            page_content.append(Paragraph(f"⚠️ Barcode error: {str(e)[:50]}", error_style))
         
         page_content.append(Spacer(1, 3))
         

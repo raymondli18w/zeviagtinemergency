@@ -12,8 +12,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-import barcode
-from barcode.writer import ImageWriter
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.barcode import code39
+from reportlab.graphics import renderPDF
 
 # Page configuration
 st.set_page_config(
@@ -278,47 +279,8 @@ def fetch_pending_lines(document_prefix=None, client_codes=None, limit=5000, ski
         st.error(f"Error: {str(e)}")
         return None
 
-def generate_barcode_image(code):
-    """Generate barcode image using python-barcode library"""
-    try:
-        if not code or code == '' or code == 'nan':
-            return None
-        
-        clean_code = str(code).strip()
-        
-        # Try Code39 first
-        try:
-            barcode_class = barcode.get_barcode_class('code39')
-            barcode_obj = barcode_class(clean_code, writer=ImageWriter())
-        except:
-            # Fallback to Code128
-            try:
-                barcode_class = barcode.get_barcode_class('code128')
-                barcode_obj = barcode_class(clean_code, writer=ImageWriter())
-            except:
-                return None
-        
-        # Use BytesIO instead of temporary file
-        buffer = io.BytesIO()
-        barcode_obj.write(buffer, {
-            'write_text': False,
-            'font_size': 0,
-            'module_width': 0.3,  # Reduced for smaller barcode
-            'module_height': 20.0,  # Reduced height
-            'quiet_zone': 1.0,  # Reduced quiet zone
-        })
-        buffer.seek(0)
-        img_data = buffer.read()
-        buffer.close()
-        
-        return base64.b64encode(img_data).decode('utf-8')
-            
-    except Exception as e:
-        print(f"Error generating barcode: {str(e)}")
-        return None
-
 def generate_barcode_pdf(document_data, document_name):
-    """Generate PDF with one barcode per page on 4x6 inch labels"""
+    """Generate PDF with one barcode per page on 4x6 inch labels using ReportLab's barcode"""
     buffer = io.BytesIO()
     
     # Filter out items without serial
@@ -396,13 +358,6 @@ def generate_barcode_pdf(document_data, document_name):
         spaceBefore=5
     )
     
-    barcode_style = ParagraphStyle(
-        'BarcodeStyle',
-        parent=styles['Normal'],
-        alignment=1,
-        spaceAfter=5
-    )
-    
     total_pages = len(items_with_serial)
     
     for idx, (_, row) in enumerate(items_with_serial.iterrows(), 1):
@@ -421,14 +376,28 @@ def generate_barcode_pdf(document_data, document_name):
         page_content.append(Paragraph(f"{item}", item_style))
         page_content.append(Spacer(1, 4))
         
-        # Generate barcode
-        barcode_img = generate_barcode_image(serial)
-        
-        if barcode_img:
-            # Scale barcode for 4x6 label - smaller width
-            img_html = f'<img src="data:image/png;base64,{barcode_img}" width="260" height="70"/>'
-            page_content.append(Paragraph(img_html, barcode_style))
-        else:
+        # Generate barcode using ReportLab's Code39
+        try:
+            # Create Code39 barcode
+            barcode_obj = code39.Code39(
+                str(serial),
+                barWidth=0.4,
+                barHeight=40,
+                humanReadable=False,
+                stop=True,
+                start=True
+            )
+            
+            # Create drawing
+            barcode_drawing = Drawing(260, 60)
+            barcode_drawing.add(barcode_obj)
+            
+            # Add the barcode drawing to the page
+            page_content.append(Spacer(1, 2))
+            page_content.append(barcode_drawing)
+            page_content.append(Spacer(1, 2))
+            
+        except Exception as e:
             error_style = ParagraphStyle(
                 'ErrorStyle',
                 parent=styles['Normal'],
@@ -436,7 +405,7 @@ def generate_barcode_pdf(document_data, document_name):
                 textColor=colors.red,
                 alignment=1
             )
-            page_content.append(Paragraph(f"⚠️ Barcode unavailable", error_style))
+            page_content.append(Paragraph(f"⚠️ Barcode unavailable: {serial}", error_style))
         
         page_content.append(Spacer(1, 3))
         
